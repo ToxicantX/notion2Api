@@ -4,6 +4,10 @@ FROM node:22-alpine AS builder
 # 设置工作目录
 WORKDIR /app
 
+# 跳过根目录 postinstall 中的 stealth-proxy 安装，
+# builder 阶段只需要 TypeScript 依赖即可完成编译
+ENV SKIP_STEALTH_POSTINSTALL=1
+
 # 仅拷贝包配置并安装所有依赖项（利用 Docker 缓存层）
 COPY package.json package-lock.json ./
 RUN npm ci
@@ -21,6 +25,7 @@ WORKDIR /app
 
 # 设置为生产环境
 ENV NODE_ENV=production
+ENV SKIP_STEALTH_POSTINSTALL=1
 
 # 增大 Node.js 堆内存上限，防止日志文件过大时加载 OOM（tesseract.js / js-tiktoken 初始化也有一定内存需求）
 ENV NODE_OPTIONS="--max-old-space-size=4096"

@@ -4,7 +4,7 @@
   "description": "Proxy Cursor docs AI to Anthropic Messages API for Claude Code",
   "type": "module",
   "scripts": {
-    "postinstall": "cd stealth-proxy && npm install && npx playwright install chromium",
+    "postinstall": "node tools/postinstall.mjs",
     "dev": "tsx watch src/index.ts",
     "dev:stealth": "sh dev-stealth.sh",
     "build": "tsc",
