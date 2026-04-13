@@ -1,4 +1,4 @@
-# cursor2api
+# notion2api
 
 将本地兼容接口代理到上游聊天服务，当前仓库已补充对 Notion `runInferenceTranscript` 的适配，可对外提供：
 
