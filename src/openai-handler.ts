@@ -654,6 +654,10 @@ async function handleOpenAIIncrementalTextStream(
         };
 
         await sendCursorRequest(activeCursorReq, (event: CursorSSEEvent) => {
+            if (event.type === 'finish') {
+                if (event.debug) log.recordUpstreamDebug(event.debug);
+                return;
+            }
             if (event.type !== 'text-delta' || !event.delta) return;
 
             rawResponse += event.delta;
@@ -795,6 +799,10 @@ async function handleOpenAIStream(
     const executeStream = async (onTextDelta?: (delta: string) => void) => {
         fullResponse = '';
         await sendCursorRequest(activeCursorReq, (event: CursorSSEEvent) => {
+            if (event.type === 'finish') {
+                if (event.debug) log.recordUpstreamDebug(event.debug);
+                return;
+            }
             if (event.type !== 'text-delta' || !event.delta) return;
             fullResponse += event.delta;
             onTextDelta?.(event.delta);
@@ -1565,6 +1573,10 @@ async function handleResponsesStream(
         const executeStream = async () => {
             fullResponse = '';
             await sendCursorRequest(activeCursorReq, (event: CursorSSEEvent) => {
+                if (event.type === 'finish') {
+                    if (event.debug) log.recordUpstreamDebug(event.debug);
+                    return;
+                }
                 if (event.type !== 'text-delta' || !event.delta) return;
                 fullResponse += event.delta;
             });

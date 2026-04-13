@@ -14,12 +14,12 @@
           <div v-else class="drawer-body">
             <!-- 基础 -->
             <Group title="基础">
-              <Field label="cursor_model" desc="代理转发时使用的 Cursor 内部模型，默认 anthropic/claude-sonnet-4.6">
+              <Field label="cursor_model" desc="代理转发时使用的上游模型标识，默认 oatmeal-cookie">
                 <select v-model="draft.cursor_model" class="inp inp-wide">
                   <option v-for="m in MODELS" :key="m" :value="m">{{ m }}</option>
                 </select>
               </Field>
-              <Field label="timeout" desc="等待 Cursor API 响应的最长时间，单位秒，默认 120">
+              <Field label="timeout" desc="等待上游响应的最长时间，单位秒，默认 120">
                 <input v-model.number="draft.timeout" type="number" min="1" class="inp" />
               </Field>
               <Field label="max_auto_continue" desc="截断时自动续写的最大次数。默认 0（禁用），推荐由客户端（如 Claude Code）自行处理，体验更好；设为 1~3 可启用 proxy 内部续写">
@@ -28,7 +28,7 @@
               <Field label="max_history_messages" desc="按条数裁剪历史（保留工具 few-shot 示例）。注意：条数无法反映实际 token 体积，建议改用下方的 max_history_tokens。-1 不限制">
                 <input v-model.number="draft.max_history_messages" type="number" min="-1" class="inp" />
               </Field>
-              <Field label="max_history_tokens" desc="按 token 数裁剪历史（推荐）。从最早消息整条删除，有助于减少超出 Cursor 上下文的概率。代码自动补偿 Cursor 后端开销（1,300 基础 + 工具 tokenizer 差异，动态计算），默认 150000，参考值 130000~170000。-1 不限制">
+              <Field label="max_history_tokens" desc="按 token 数裁剪历史（推荐）。从最早消息整条删除，有助于减少超出当前上游上下文的概率。代码会补偿上游额外开销（基础隐藏提示 + 工具 tokenizer 差异，动态计算），默认 150000，参考值 130000~170000。-1 不限制">
                 <input v-model.number="draft.max_history_tokens" type="number" min="-1" class="inp" />
               </Field>
             </Group>
@@ -45,14 +45,14 @@
                     { value: 'on', label: '强制开启' },
                   ]" />
               </Field>
-              <Field label="sanitize_response" desc="将响应中 Cursor 身份引用替换为 Claude，清洗工具可用性声明等。默认关闭，如无需伪装身份建议保持关闭（有轻微性能开销）">
+              <Field label="sanitize_response" desc="将响应中旧的 Cursor 身份引用替换为 Claude，清洗工具可用性声明等。默认关闭，如无需伪装身份建议保持关闭（有轻微性能开销）">
                 <Toggle v-model="draft.sanitize_response" />
               </Field>
             </Group>
 
             <!-- 压缩 -->
             <Group title="历史压缩（compression）">
-              <Field label="compression.enabled" desc="默认关闭。对话过长时自动压缩早期消息，释放输出空间，防止 Cursor 上下文溢出。压缩算法会智能识别消息类型，不会破坏工具调用的 JSON 结构">
+              <Field label="compression.enabled" desc="默认关闭。对话过长时自动压缩早期消息，释放输出空间，防止上游上下文溢出。压缩算法会智能识别消息类型，不会破坏工具调用的 JSON 结构">
                 <Toggle v-model="draft.compression.enabled" />
               </Field>
               <template v-if="draft.compression.enabled">

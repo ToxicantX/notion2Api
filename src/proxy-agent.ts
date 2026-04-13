@@ -44,7 +44,7 @@ export function getProxyFetchOptions(): Record<string, unknown> {
 
 /**
  * ★ Vision 独立代理：优先使用 vision.proxy，否则回退到全局 proxy
- * Cursor API 国内可直连不需要代理，但图片分析 API 可能需要
+ * 当前聊天上游通常可直连，但图片分析 API 可能仍然需要代理
  */
 export function getVisionProxyFetchOptions(): Record<string, unknown> {
     const config = getConfig();

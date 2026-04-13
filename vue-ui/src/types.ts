@@ -103,6 +103,7 @@ export interface Payload {
   // 模型响应
   rawResponse?: string;
   finalResponse?: string;
+  upstreamDebug?: unknown;
   thinkingContent?: string;
   toolCalls?: unknown[];
   retryResponses?: Array<{ attempt: number; response: string; reason: string }>;

@@ -2,7 +2,7 @@
  * handler.ts - Anthropic Messages API 处理器
  *
  * 处理 Claude Code 发来的 /v1/messages 请求
- * 转换为 Cursor API 调用，解析响应并返回标准 Anthropic 格式
+ * 转换为上游 API 调用，解析响应并返回标准 Anthropic 格式
  */
 
 import type { Request, Response } from 'express';
@@ -81,24 +81,22 @@ export function extractThinking(text: string): { thinkingContent: string; stripp
 // ==================== 模型列表 ====================
 
 export function listModels(_req: Request, res: Response): void {
-    const model = getConfig().cursorModel;
+    const config = getConfig();
     const now = Math.floor(Date.now() / 1000);
+    const configuredModels = Object.keys(config.modelMap || {});
+    const ids = configuredModels.length > 0
+        ? configuredModels
+        : [config.cursorModel];
     res.json({
         object: 'list',
-        data: [
-            { id: model, object: 'model', created: now, owned_by: 'anthropic' },
-            // Cursor IDE 推荐使用以下 Claude 模型名（避免走 /v1/responses 格式）
-            { id: 'claude-sonnet-4-5-20250929', object: 'model', created: now, owned_by: 'anthropic' },
-            { id: 'claude-sonnet-4-20250514', object: 'model', created: now, owned_by: 'anthropic' },
-            { id: 'claude-3-5-sonnet-20241022', object: 'model', created: now, owned_by: 'anthropic' },
-        ],
+        data: ids.map((id) => ({ id, object: 'model', created: now, owned_by: 'notion' })),
     });
 }
 
 // ==================== Token 计数 ====================
 
 /**
- * 对实际发往 Cursor 的完整消息内容做 token 估算（用于与 Cursor 返回值对比）
+ * 对实际发往上游的完整消息内容做 token 估算（用于与上游返回值对比）
  */
 export function estimateCursorReqTokens(cursorReq: CursorChatRequest): number {
     let total = 0;
@@ -379,9 +377,9 @@ export async function handleMessages(req: Request, res: Response): Promise<void>
             }
         }
 
-        // 转换为 Cursor 请求
+        // 转换为上游请求
         log.startPhase('convert', '格式转换');
-        log.info('Handler', 'convert', '开始转换为 Cursor 请求格式');
+        log.info('Handler', 'convert', '开始转换为上游请求格式');
         // ★ 区分客户端 thinking 模式：
         // - enabled: GUI 插件，支持渲染 thinking content block
         // - adaptive: Claude Code，需要密码学 signature 验证，无法伪造 → 保留标签在正文中
@@ -956,11 +954,12 @@ async function handleDirectTextStream(
 
         const apiStart = Date.now();
         let firstChunk = true;
-        log.startPhase('send', '发送到 Cursor');
+        log.startPhase('send', '发送到上游');
 
         await sendCursorRequest(activeCursorReq, (event: CursorSSEEvent) => {
             if (event.type === 'finish') {
                 if (event.messageMetadata?.usage) cursorUsage = event.messageMetadata.usage;
+                if (event.debug) log.recordUpstreamDebug(event.debug);
                 return;
             }
             if (event.type !== 'text-delta' || !event.delta) return;
@@ -1183,7 +1182,7 @@ async function handleStream(res: Response, cursorReq: CursorChatRequest, body: A
         const apiStart = Date.now();
         let firstChunk = true;
         let earlyAborted = false;
-        log.startPhase('send', '发送到 Cursor');
+        log.startPhase('send', '发送到上游');
 
         // ★ 早期中止支持：检测到拒绝后立即中断流，不等完整响应
         const abortController = detectRefusalEarly ? new AbortController() : undefined;
@@ -1192,6 +1191,7 @@ async function handleStream(res: Response, cursorReq: CursorChatRequest, body: A
             await sendCursorRequest(activeCursorReq, (event: CursorSSEEvent) => {
                 if (event.type === 'finish') {
                     if (event.messageMetadata?.usage) cursorUsage = event.messageMetadata.usage;
+                    if (event.debug) log.recordUpstreamDebug(event.debug);
                     return;
                 }
                 if (event.type !== 'text-delta' || !event.delta) return;
@@ -1828,7 +1828,7 @@ async function handleNonStream(res: Response, cursorReq: CursorChatRequest, body
     }, 15000);
 
     try {
-    log.startPhase('send', '发送到 Cursor (非流式)');
+    log.startPhase('send', '发送到上游 (非流式)');
     const apiStart = Date.now();
     let { text: fullText, usage: cursorUsage } = await sendCursorRequestFull(cursorReq);
     log.recordTTFT();

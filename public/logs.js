@@ -173,8 +173,8 @@ function renderSCard(s){
   const sc={processing:'var(--yellow)',success:'var(--green)',degraded:'var(--orange)',error:'var(--red)',intercepted:'var(--pink)'}[s.status]||'var(--t3)';
   const items=[['状态','<span style="color:'+sc+'">'+s.status.toUpperCase()+'</span>'],['耗时',dur],['模型',escH(s.model)],['格式',(s.apiFormat||'anthropic').toUpperCase()],['消息数',s.messageCount],['响应字数',fmtN(s.responseChars)],['TTFT',s.ttft?s.ttft+'ms':'-'],['API耗时',s.cursorApiTime?s.cursorApiTime+'ms':'-'],['停止原因',s.stopReason||'-'],['重试',s.retryCount],['续写',s.continuationCount],['工具调用',s.toolCallsDetected]];
   if(s.thinkingChars>0)items.push(['Thinking',fmtN(s.thinkingChars)+' chars']);
-  if(s.inputTokens)items.push(['↑ Cursor tokens',fmtN(s.inputTokens)]);
-  if(s.outputTokens)items.push(['↓ Cursor tokens',fmtN(s.outputTokens)]);
+  if(s.inputTokens)items.push(['↑ 上游 tokens',fmtN(s.inputTokens)]);
+  if(s.outputTokens)items.push(['↓ 上游 tokens',fmtN(s.outputTokens)]);
   if(s.statusReason)items.push(['降级原因',escH(s.statusReason)]);
   if(s.issueTags&&s.issueTags.length)items.push(['问题标签',escH(s.issueTags.join(', '))]);
   if(s.error)items.push(['错误','<span style="color:var(--red)">'+escH(s.error)+'</span>']);
@@ -221,11 +221,15 @@ function renderRequestTab(tc){
     h+='</div>';
   }
   if(curPayload.cursorRequest){
-    h+='<div class="content-section"><div class="cs-title">🔄 Cursor 请求（转换后）</div>';
+    h+='<div class="content-section"><div class="cs-title">🔄 上游请求（转换后）</div>';
     h+='<div class="resp-box">'+syntaxHL(curPayload.cursorRequest)+'<button class="copy-btn" onclick="copyText(JSON.stringify(curPayload.cursorRequest,null,2))">复制</button></div></div>';
   }
+  if(curPayload.upstreamDebug){
+    h+='<div class="content-section"><div class="cs-title">🧪 上游调试片段</div>';
+    h+='<div class="resp-box">'+syntaxHL(curPayload.upstreamDebug)+'<button class="copy-btn" onclick="copyText(JSON.stringify(curPayload.upstreamDebug,null,2))">复制</button></div></div>';
+  }
   if(curPayload.cursorMessages&&curPayload.cursorMessages.length){
-    h+='<div class="content-section"><div class="cs-title">📨 Cursor 消息列表 <span class="cnt">'+curPayload.cursorMessages.length+' 条</span></div>';
+    h+='<div class="content-section"><div class="cs-title">📨 上游消息列表 <span class="cnt">'+curPayload.cursorMessages.length+' 条</span></div>';
     curPayload.cursorMessages.forEach((m,i)=>{
       const collapsed=m.contentPreview.length>500;
       h+='<div class="msg-item"><div class="msg-header" onclick="togMsg(this)"><span class="msg-role '+m.role+'">'+m.role+' #'+(i+1)+'</span><span class="msg-meta">'+fmtN(m.contentLength)+' chars '+(collapsed?'▶ 展开':'▼ 收起')+'</span></div><div class="msg-body" style="display:'+(collapsed?'none':'block')+';max-height:800px;overflow-y:auto">'+escH(m.contentPreview)+'</div></div>';
@@ -253,16 +257,16 @@ function renderPromptsTab(tc){
     h+='<div class="content-section"><div class="cs-title">🔄 转换摘要</div>';
     h+='<div class="sgrid" style="grid-template-columns:repeat(4,1fr);gap:8px;margin:8px 0">';
     h+='<div class="si2"><span class="l">原始工具数</span><span class="v">'+origToolCount+'</span></div>';
-    h+='<div class="si2"><span class="l">Cursor 工具数</span><span class="v" style="color:var(--green)">0 <span style="font-size:10px;color:var(--t2)">(嵌入消息)</span></span></div>';
+    h+='<div class="si2"><span class="l">上游工具数</span><span class="v" style="color:var(--green)">0 <span style="font-size:10px;color:var(--t2)">(嵌入消息)</span></span></div>';
     h+='<div class="si2"><span class="l">总上下文</span><span class="v">'+(cursorTotalChars>0?fmtN(cursorTotalChars)+' chars':'—')+'</span></div>';
-    h+='<div class="si2"><span class="l">↑ Cursor 输入 tokens</span><span class="v" style="color:var(--blue)">'+(s.inputTokens?fmtN(s.inputTokens):'—')+'</span></div>';
+    h+='<div class="si2"><span class="l">↑ 上游输入 tokens</span><span class="v" style="color:var(--blue)">'+(s.inputTokens?fmtN(s.inputTokens):'—')+'</span></div>';
     h+='<div class="si2"><span class="l">原始消息数</span><span class="v">'+origMsgCount+'</span></div>';
-    h+='<div class="si2"><span class="l">Cursor 消息数</span><span class="v" style="color:var(--green)">'+cursorMsgCount+'</span></div>';
+    h+='<div class="si2"><span class="l">上游消息数</span><span class="v" style="color:var(--green)">'+cursorMsgCount+'</span></div>';
     h+='<div class="si2"><span class="l">工具指令占用</span><span class="v">'+(toolInstructionChars>0?fmtN(toolInstructionChars)+' chars':origToolCount>0?'嵌入第1条消息':'N/A')+'</span></div>';
-    h+='<div class="si2"><span class="l">↓ Cursor 输出 tokens</span><span class="v" style="color:var(--green)">'+(s.outputTokens?fmtN(s.outputTokens):'—')+'</span></div>';
+    h+='<div class="si2"><span class="l">↓ 上游输出 tokens</span><span class="v" style="color:var(--green)">'+(s.outputTokens?fmtN(s.outputTokens):'—')+'</span></div>';
     h+='</div>';
     if(origToolCount>0){
-      h+='<div style="color:var(--yellow);font-size:12px;padding:6px 10px;background:rgba(234,179,8,0.1);border-radius:6px;margin-top:4px">⚠️ Cursor API 不支持原生 tools 参数。'+origToolCount+' 个工具定义已转换为文本指令，嵌入在 user #1 消息中'+(toolInstructionChars>0?'（约 '+fmtN(toolInstructionChars)+' chars）':'')+'</div>';
+      h+='<div style="color:var(--yellow);font-size:12px;padding:6px 10px;background:rgba(234,179,8,0.1);border-radius:6px;margin-top:4px">⚠️ 当前上游不支持原生 tools 参数。'+origToolCount+' 个工具定义已转换为文本指令，嵌入在 user #1 消息中'+(toolInstructionChars>0?'（约 '+fmtN(toolInstructionChars)+' chars）':'')+'</div>';
     }
     h+='</div>';
   }
@@ -285,17 +289,17 @@ function renderPromptsTab(tc){
     });
     h+='</div>';
   }
-  // ===== 转换后 Cursor 请求 =====
+  // ===== 转换后上游请求 =====
   if(curPayload.cursorMessages&&curPayload.cursorMessages.length){
-    h+='<div class="content-section" style="margin-top:24px;border-top:2px solid var(--green);padding-top:16px"><div class="cs-title">📤 Cursor 最终消息（转换后） <span class="cnt" style="background:var(--green);color:#fff">'+curPayload.cursorMessages.length+' 条</span></div>';
-    h+='<div style="color:var(--t2);font-size:12px;margin-bottom:8px">⬇️ 以下是清洗后实际发给 Cursor 模型的消息（已清除身份声明、注入工具指令、添加认知重构）</div>';
+    h+='<div class="content-section" style="margin-top:24px;border-top:2px solid var(--green);padding-top:16px"><div class="cs-title">📤 上游最终消息（转换后） <span class="cnt" style="background:var(--green);color:#fff">'+curPayload.cursorMessages.length+' 条</span></div>';
+    h+='<div style="color:var(--t2);font-size:12px;margin-bottom:8px">⬇️ 以下是清洗后实际发给上游模型的消息（已清除身份声明、注入工具指令、添加认知重构）</div>';
     curPayload.cursorMessages.forEach((m,i)=>{
       const collapsed=m.contentPreview.length>500;
       h+='<div class="msg-item" style="border-left:3px solid var(--green)"><div class="msg-header" onclick="togMsg(this)"><span class="msg-role '+m.role+'">'+m.role+' #'+(i+1)+'</span><span class="msg-meta">'+fmtN(m.contentLength)+' chars '+(collapsed?'▶ 展开':'▼ 收起')+'</span></div><div class="msg-body" style="display:'+(collapsed?'none':'block')+';max-height:800px;overflow-y:auto">'+escH(m.contentPreview)+'</div></div>';
     });
     h+='</div>';
   } else if(curPayload.cursorRequest) {
-    h+='<div class="content-section" style="margin-top:24px;border-top:2px solid var(--green);padding-top:16px"><div class="cs-title">📤 Cursor 最终请求（转换后）</div>';
+    h+='<div class="content-section" style="margin-top:24px;border-top:2px solid var(--green);padding-top:16px"><div class="cs-title">📤 上游最终请求（转换后）</div>';
     h+='<div class="resp-box" style="border-color:var(--green)">'+syntaxHL(curPayload.cursorRequest)+'</div></div>';
   }
   tc.innerHTML=h||'<div class="empty"><div class="ic">💬</div><p>暂无提示词数据</p></div>';
@@ -320,6 +324,10 @@ function renderResponseTab(tc){
   if(curPayload.rawResponse){
     h+='<div class="content-section"><div class="cs-title">📝 模型原始返回 <span class="cnt">'+fmtN(curPayload.rawResponse.length)+' chars</span></div>';
     h+='<div class="resp-box" style="max-height:400px">'+escH(curPayload.rawResponse)+'<button class="copy-btn" onclick="copyText(curPayload.rawResponse)">复制</button></div></div>';
+  }
+  if(curPayload.upstreamDebug){
+    h+='<div class="content-section"><div class="cs-title">🧪 上游调试片段</div>';
+    h+='<div class="resp-box">'+syntaxHL(curPayload.upstreamDebug)+'<button class="copy-btn" onclick="copyText(JSON.stringify(curPayload.upstreamDebug,null,2))">复制</button></div></div>';
   }
   if(curPayload.finalResponse&&curPayload.finalResponse!==curPayload.rawResponse){
     h+='<div class="content-section"><div class="cs-title">✅ 最终响应（处理后）<span class="cnt">'+fmtN(curPayload.finalResponse.length)+' chars</span></div>';

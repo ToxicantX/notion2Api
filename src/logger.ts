@@ -71,6 +71,8 @@ export interface RequestPayload {
     // ===== 模型响应 =====
     /** 原始模型返回全文 */
     rawResponse?: string;
+    /** 上游调试片段 */
+    upstreamDebug?: unknown;
     /** 清洗/处理后的最终响应 */
     finalResponse?: string;
     /** Thinking 内容 */
@@ -470,6 +472,9 @@ function compactPayloadForDisk(summary: RequestSummary, payload: RequestPayload)
     if (compactFinalResponse) compact.finalResponse = compactFinalResponse;
     if (compactRawResponse && compactRawResponse !== compactFinalResponse) {
         compact.rawResponse = compactRawResponse;
+    }
+    if (payload.upstreamDebug !== undefined) {
+        compact.upstreamDebug = compactUnknownValue(payload.upstreamDebug, DISK_RESPONSE_CHARS);
     }
     if (payload.thinkingContent) {
         compact.thinkingContent = truncateMiddle(payload.thinkingContent, DISK_THINKING_CHARS);
@@ -1049,6 +1054,11 @@ export class RequestLogger {
     /** 记录模型原始响应 */
     recordRawResponse(text: string): void {
         this.payload.rawResponse = text;
+    }
+
+    /** 记录上游调试片段 */
+    recordUpstreamDebug(debug: unknown): void {
+        this.payload.upstreamDebug = debug;
     }
     
     /** 记录最终响应 */

@@ -1,8 +1,8 @@
 /**
  * Cursor2API v2 - 入口
  *
- * 将 Cursor 文档页免费 AI 接口代理为 Anthropic Messages API
- * 通过提示词注入让 Claude Code 拥有完整工具调用能力
+ * 将当前上游聊天接口代理为 Anthropic / OpenAI 兼容 API
+ * 通过提示词注入让 Claude Code 等客户端拥有完整工具调用能力
  */
 
 import 'dotenv/config';
@@ -134,7 +134,7 @@ app.get('/', (_req, res) => {
     res.json({
         name: 'cursor2api',
         version: VERSION,
-        description: 'Cursor Docs AI → Anthropic & OpenAI & Cursor IDE API Proxy',
+        description: 'Notion AI → Anthropic & OpenAI Compatible API Proxy',
         endpoints: {
             anthropic_messages: 'POST /v1/messages',
             openai_chat: 'POST /v1/chat/completions',
@@ -147,7 +147,7 @@ app.get('/', (_req, res) => {
         usage: {
             claude_code: 'export ANTHROPIC_BASE_URL=http://localhost:' + config.port,
             openai_compatible: 'OPENAI_BASE_URL=http://localhost:' + config.port + '/v1',
-            cursor_ide: 'OPENAI_BASE_URL=http://localhost:' + config.port + '/v1 (选用 Claude 模型)',
+            cursor_ide: 'OPENAI_BASE_URL=http://localhost:' + config.port + '/v1',
         },
     });
 });

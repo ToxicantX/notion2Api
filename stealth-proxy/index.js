@@ -15,7 +15,8 @@ const express = require('express');
 const crypto = require('crypto');
 
 const PORT = parseInt(process.env.PORT || '3011');
-const CHALLENGE_URL = process.env.CHALLENGE_URL || 'https://cursor.com/cn/docs';
+const UPSTREAM_CHAT_API = process.env.UPSTREAM_CHAT_API || 'https://www.notion.so/api/v3/runInferenceTranscript';
+const CHALLENGE_URL = process.env.CHALLENGE_URL || 'https://www.notion.so/';
 const REFRESH_INTERVAL = parseInt(process.env.REFRESH_INTERVAL || '3000000'); // 50 分钟
 const CHALLENGE_WAIT = parseInt(process.env.CHALLENGE_WAIT || '55000'); // challenge 最长等待时间
 
@@ -298,9 +299,10 @@ app.post('/proxy/chat', async (req, res) => {
     // 在浏览器上下文内发起 fetch 并流式回传
     workerPage
         .evaluate(
-            async ({ body, requestId }) => {
+            async ({ body, requestId, upstreamChatApi }) => {
                 try {
-                    const r = await fetch('/api/chat', {
+                    const upstream = new URL(upstreamChatApi, window.location.origin);
+                    const r = await fetch(upstream.toString(), {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(body),
@@ -349,7 +351,7 @@ app.post('/proxy/chat', async (req, res) => {
                     );
                 }
             },
-            { body: req.body, requestId },
+            { body: req.body, requestId, upstreamChatApi: UPSTREAM_CHAT_API },
         )
         .catch((err) => {
             const pending = pendingRequests.get(requestId);

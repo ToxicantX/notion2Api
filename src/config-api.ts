@@ -11,6 +11,10 @@ export function apiGetConfig(_req: Request, res: Response): void {
     const cfg = getConfig();
     res.json({
         cursor_model: cfg.cursorModel,
+        upstream_chat_api: cfg.upstreamChatApi,
+        upstream_origin: cfg.upstreamOrigin,
+        upstream_referer: cfg.upstreamReferer,
+        challenge_url: cfg.challengeUrl,
         timeout: cfg.timeout,
         max_auto_continue: cfg.maxAutoContinue,
         max_history_messages: cfg.maxHistoryMessages,
@@ -45,6 +49,18 @@ export function apiSaveConfig(req: Request, res: Response): void {
     if (body.cursor_model !== undefined && typeof body.cursor_model !== 'string') {
         res.status(400).json({ error: 'cursor_model must be a string' }); return;
     }
+    if (body.upstream_chat_api !== undefined && typeof body.upstream_chat_api !== 'string') {
+        res.status(400).json({ error: 'upstream_chat_api must be a string' }); return;
+    }
+    if (body.upstream_origin !== undefined && typeof body.upstream_origin !== 'string') {
+        res.status(400).json({ error: 'upstream_origin must be a string' }); return;
+    }
+    if (body.upstream_referer !== undefined && typeof body.upstream_referer !== 'string') {
+        res.status(400).json({ error: 'upstream_referer must be a string' }); return;
+    }
+    if (body.challenge_url !== undefined && typeof body.challenge_url !== 'string') {
+        res.status(400).json({ error: 'challenge_url must be a string' }); return;
+    }
     if (body.timeout !== undefined && (typeof body.timeout !== 'number' || body.timeout <= 0)) {
         res.status(400).json({ error: 'timeout must be a positive number' }); return;
     }
@@ -72,6 +88,22 @@ export function apiSaveConfig(req: Request, res: Response): void {
         if (body.cursor_model !== undefined && body.cursor_model !== raw.cursor_model) {
             changes.push(`cursor_model: ${raw.cursor_model ?? '(unset)'} → ${body.cursor_model}`);
             raw.cursor_model = body.cursor_model;
+        }
+        if (body.upstream_chat_api !== undefined && body.upstream_chat_api !== raw.upstream_chat_api) {
+            changes.push(`upstream_chat_api: ${raw.upstream_chat_api ?? '(unset)'} → ${body.upstream_chat_api}`);
+            raw.upstream_chat_api = body.upstream_chat_api;
+        }
+        if (body.upstream_origin !== undefined && body.upstream_origin !== raw.upstream_origin) {
+            changes.push(`upstream_origin: ${raw.upstream_origin ?? '(unset)'} → ${body.upstream_origin}`);
+            raw.upstream_origin = body.upstream_origin;
+        }
+        if (body.upstream_referer !== undefined && body.upstream_referer !== raw.upstream_referer) {
+            changes.push(`upstream_referer: ${raw.upstream_referer ?? '(unset)'} → ${body.upstream_referer}`);
+            raw.upstream_referer = body.upstream_referer;
+        }
+        if (body.challenge_url !== undefined && body.challenge_url !== raw.challenge_url) {
+            changes.push(`challenge_url: ${raw.challenge_url ?? '(unset)'} → ${body.challenge_url}`);
+            raw.challenge_url = body.challenge_url;
         }
         if (body.timeout !== undefined && body.timeout !== raw.timeout) {
             changes.push(`timeout: ${raw.timeout ?? '(unset)'} → ${body.timeout}`);

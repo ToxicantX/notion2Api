@@ -35,6 +35,29 @@ function parseYamlConfig(defaults: AppConfig): { config: AppConfig; raw: Record<
         if (yaml.timeout) result.timeout = yaml.timeout;
         if (yaml.proxy) result.proxy = yaml.proxy;
         if (yaml.cursor_model) result.cursorModel = yaml.cursor_model;
+        if (yaml.upstream_chat_api) result.upstreamChatApi = String(yaml.upstream_chat_api);
+        if (yaml.upstream_origin) result.upstreamOrigin = String(yaml.upstream_origin);
+        if (yaml.upstream_referer) result.upstreamReferer = String(yaml.upstream_referer);
+        if (yaml.challenge_url) result.challengeUrl = String(yaml.challenge_url);
+        if (yaml.notion_active_user_id) result.notionActiveUserId = String(yaml.notion_active_user_id);
+        if (yaml.notion_space_id) result.notionSpaceId = String(yaml.notion_space_id);
+        if (yaml.notion_thread_id) result.notionThreadId = String(yaml.notion_thread_id);
+        if (yaml.notion_client_version) result.notionClientVersion = String(yaml.notion_client_version);
+        if (yaml.notion_space_view_id) result.notionSpaceViewId = String(yaml.notion_space_view_id);
+        if (yaml.notion_accept_language) result.notionAcceptLanguage = String(yaml.notion_accept_language);
+        if (yaml.notion_baggage) result.notionBaggage = String(yaml.notion_baggage);
+        if (yaml.notion_sentry_trace) result.notionSentryTrace = String(yaml.notion_sentry_trace);
+        if (yaml.notion_sec_ch_ua) result.notionSecChUa = String(yaml.notion_sec_ch_ua);
+        if (yaml.notion_user_name) result.notionUserName = String(yaml.notion_user_name);
+        if (yaml.notion_user_email) result.notionUserEmail = String(yaml.notion_user_email);
+        if (yaml.notion_space_name) result.notionSpaceName = String(yaml.notion_space_name);
+        if (yaml.model_map && typeof yaml.model_map === 'object') {
+            result.modelMap = Object.fromEntries(
+                Object.entries(yaml.model_map as Record<string, unknown>)
+                    .filter((entry): entry is [string, unknown] => typeof entry[0] === 'string')
+                    .map(([key, value]) => [key, String(value)])
+            );
+        }
         if (typeof yaml.max_auto_continue === 'number') result.maxAutoContinue = yaml.max_auto_continue;
         if (typeof yaml.max_history_messages === 'number') result.maxHistoryMessages = yaml.max_history_messages;
         if (typeof yaml.max_history_tokens === 'number') result.maxHistoryTokens = yaml.max_history_tokens;
@@ -133,6 +156,32 @@ function applyEnvOverrides(cfg: AppConfig): void {
     if (process.env.TIMEOUT) cfg.timeout = parseInt(process.env.TIMEOUT);
     if (process.env.PROXY) cfg.proxy = process.env.PROXY;
     if (process.env.CURSOR_MODEL) cfg.cursorModel = process.env.CURSOR_MODEL;
+    if (process.env.UPSTREAM_CHAT_API) cfg.upstreamChatApi = process.env.UPSTREAM_CHAT_API;
+    if (process.env.UPSTREAM_ORIGIN) cfg.upstreamOrigin = process.env.UPSTREAM_ORIGIN;
+    if (process.env.UPSTREAM_REFERER) cfg.upstreamReferer = process.env.UPSTREAM_REFERER;
+    if (process.env.CHALLENGE_URL) cfg.challengeUrl = process.env.CHALLENGE_URL;
+    if (process.env.NOTION_ACTIVE_USER_ID) cfg.notionActiveUserId = process.env.NOTION_ACTIVE_USER_ID;
+    if (process.env.NOTION_SPACE_ID) cfg.notionSpaceId = process.env.NOTION_SPACE_ID;
+    if (process.env.NOTION_THREAD_ID) cfg.notionThreadId = process.env.NOTION_THREAD_ID;
+    if (process.env.NOTION_CLIENT_VERSION) cfg.notionClientVersion = process.env.NOTION_CLIENT_VERSION;
+    if (process.env.NOTION_SPACE_VIEW_ID) cfg.notionSpaceViewId = process.env.NOTION_SPACE_VIEW_ID;
+    if (process.env.NOTION_ACCEPT_LANGUAGE) cfg.notionAcceptLanguage = process.env.NOTION_ACCEPT_LANGUAGE;
+    if (process.env.NOTION_BAGGAGE) cfg.notionBaggage = process.env.NOTION_BAGGAGE;
+    if (process.env.NOTION_SENTRY_TRACE) cfg.notionSentryTrace = process.env.NOTION_SENTRY_TRACE;
+    if (process.env.NOTION_SEC_CH_UA) cfg.notionSecChUa = process.env.NOTION_SEC_CH_UA;
+    if (process.env.NOTION_USER_NAME) cfg.notionUserName = process.env.NOTION_USER_NAME;
+    if (process.env.NOTION_USER_EMAIL) cfg.notionUserEmail = process.env.NOTION_USER_EMAIL;
+    if (process.env.NOTION_SPACE_NAME) cfg.notionSpaceName = process.env.NOTION_SPACE_NAME;
+    if (process.env.MODEL_MAP_JSON) {
+        try {
+            const parsed = JSON.parse(process.env.MODEL_MAP_JSON) as Record<string, unknown>;
+            cfg.modelMap = Object.fromEntries(
+                Object.entries(parsed).map(([key, value]) => [key, String(value)])
+            );
+        } catch (error) {
+            console.warn('[Config] 解析 MODEL_MAP_JSON 失败:', error);
+        }
+    }
     if (process.env.MAX_AUTO_CONTINUE !== undefined) cfg.maxAutoContinue = parseInt(process.env.MAX_AUTO_CONTINUE);
     if (process.env.MAX_HISTORY_MESSAGES !== undefined) cfg.maxHistoryMessages = parseInt(process.env.MAX_HISTORY_MESSAGES);
     if (process.env.MAX_HISTORY_TOKENS !== undefined) cfg.maxHistoryTokens = parseInt(process.env.MAX_HISTORY_TOKENS);
@@ -234,7 +283,17 @@ function defaultConfig(): AppConfig {
     return {
         port: 3010,
         timeout: 120,
-        cursorModel: 'anthropic/claude-sonnet-4.6',
+        cursorModel: 'oatmeal-cookie',
+        upstreamChatApi: 'https://www.notion.so/api/v3/runInferenceTranscript',
+        upstreamOrigin: 'https://www.notion.so',
+        upstreamReferer: 'https://www.notion.so/',
+        challengeUrl: 'https://www.notion.so/',
+        notionClientVersion: '23.13.20260412.2235',
+        notionAcceptLanguage: 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7,en-GB;q=0.6',
+        notionSecChUa: '"Chromium";v="146", "Not-A.Brand";v="24", "Microsoft Edge";v="146"',
+        modelMap: {
+            'anthropic/claude-sonnet-4.6': 'oatmeal-cookie',
+        },
         maxAutoContinue: 0,
         maxHistoryMessages: -1,
         maxHistoryTokens: 150000,
@@ -255,6 +314,10 @@ function detectChanges(oldCfg: AppConfig, newCfg: AppConfig): string[] {
     if (oldCfg.timeout !== newCfg.timeout) changes.push(`timeout: ${oldCfg.timeout} → ${newCfg.timeout}`);
     if (oldCfg.proxy !== newCfg.proxy) changes.push(`proxy: ${oldCfg.proxy || '(none)'} → ${newCfg.proxy || '(none)'}`);
     if (oldCfg.cursorModel !== newCfg.cursorModel) changes.push(`cursor_model: ${oldCfg.cursorModel} → ${newCfg.cursorModel}`);
+    if (oldCfg.upstreamChatApi !== newCfg.upstreamChatApi) changes.push(`upstream_chat_api: ${oldCfg.upstreamChatApi || '(none)'} → ${newCfg.upstreamChatApi || '(none)'}`);
+    if (oldCfg.upstreamOrigin !== newCfg.upstreamOrigin) changes.push(`upstream_origin: ${oldCfg.upstreamOrigin || '(none)'} → ${newCfg.upstreamOrigin || '(none)'}`);
+    if (oldCfg.upstreamReferer !== newCfg.upstreamReferer) changes.push(`upstream_referer: ${oldCfg.upstreamReferer || '(none)'} → ${newCfg.upstreamReferer || '(none)'}`);
+    if (oldCfg.challengeUrl !== newCfg.challengeUrl) changes.push(`challenge_url: ${oldCfg.challengeUrl || '(none)'} → ${newCfg.challengeUrl || '(none)'}`);
     if (oldCfg.maxAutoContinue !== newCfg.maxAutoContinue) changes.push(`max_auto_continue: ${oldCfg.maxAutoContinue} → ${newCfg.maxAutoContinue}`);
     if (oldCfg.maxHistoryMessages !== newCfg.maxHistoryMessages) changes.push(`max_history_messages: ${oldCfg.maxHistoryMessages} → ${newCfg.maxHistoryMessages}`);
     if (oldCfg.maxHistoryTokens !== newCfg.maxHistoryTokens) changes.push(`max_history_tokens: ${oldCfg.maxHistoryTokens} → ${newCfg.maxHistoryTokens}`);
@@ -318,7 +381,6 @@ export function getConfig(): AppConfig {
 export function initConfigWatcher(): void {
     if (watcher) return; // 避免重复初始化
     if (!existsSync('config.yaml')) {
-        console.log('[Config] config.yaml 不存在，跳过热重载监听');
         return;
     }
 

@@ -2,10 +2,10 @@
  * converter.ts - 核心协议转换器
  *
  * 职责：
- * 1. Anthropic Messages API → Cursor /api/chat 请求转换
- * 2. Tool 定义 → 提示词注入（让 Cursor 背后的 Claude 模型输出工具调用）
+ * 1. Anthropic Messages API → 上游请求转换
+ * 2. Tool 定义 → 提示词注入（让上游模型输出工具调用）
  * 3. AI 响应中的工具调用解析（JSON 块 → Anthropic tool_use 格式）
- * 4. tool_result → 文本转换（用于回传给 Cursor API）
+ * 4. tool_result → 文本转换（用于回传给上游）
  * 5. 图片预处理 → Anthropic ImageBlockParam 检测与 OCR/视觉 API 降级
  */
 
@@ -28,6 +28,20 @@ import { estimateTokens } from './tokenizer.js';
 import { applyVisionInterceptor } from './vision.js';
 import { fixToolCallArguments } from './tool-fixer.js';
 import { getVisionProxyFetchOptions } from './proxy-agent.js';
+
+function resolveUpstreamModel(requestedModel: string | undefined): string {
+    const config = getConfig();
+    if (!requestedModel) return config.cursorModel;
+
+    const mapped = config.modelMap?.[requestedModel];
+    if (mapped) return mapped;
+
+    if (Object.values(config.modelMap || {}).includes(requestedModel)) {
+        return requestedModel;
+    }
+
+    return config.cursorModel;
+}
 
 // ==================== 工具指令构建 ====================
 
@@ -846,7 +860,7 @@ I will ALWAYS use this exact \`\`\`json action\`\`\` block format for tool calls
     }
 
     return {
-        model: config.cursorModel,
+        model: resolveUpstreamModel(req.model),
         id: deriveConversationId(req),
         messages,
         trigger: 'submit-message',

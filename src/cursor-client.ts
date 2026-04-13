@@ -1,28 +1,179 @@
-/**
- * cursor-client.ts - Cursor API 客户端
- *
- * 职责：
- * 1. 发送请求到 https://cursor.com/api/chat（带 Chrome TLS 指纹模拟 headers）
- * 2. 流式解析 SSE 响应
- * 3. 自动重试（最多 2 次）
- *
- * 注：x-is-human token 验证已被 Cursor 停用，直接发送空字符串即可。
- */
-
-import type { CursorChatRequest, CursorSSEEvent } from './types.js';
+import { randomUUID } from 'crypto';
+import type { AppConfig, CursorChatRequest, CursorSSEEvent } from './types.js';
 import { getConfig } from './config.js';
 import { getProxyFetchOptions } from './proxy-agent.js';
 
-const CURSOR_CHAT_API = 'https://cursor.com/api/chat';
+const DEFAULT_CHAT_API = 'https://www.notion.so/api/v3/runInferenceTranscript';
+const DEFAULT_ORIGIN = 'https://www.notion.so';
+const DEFAULT_REFERER = 'https://www.notion.so/';
+const DEFAULT_NOTION_CLIENT_VERSION = '23.13.20260412.2235';
 
-// Chrome 浏览器请求头模拟
+function getUpstreamUrl(config: AppConfig): URL {
+    return new URL(config.upstreamChatApi || DEFAULT_CHAT_API);
+}
+
+function isNotionUpstream(config: AppConfig): boolean {
+    const url = getUpstreamUrl(config);
+    return url.hostname.endsWith('notion.so') && url.pathname.includes('/api/v3/runInferenceTranscript');
+}
+
+function flattenMessageText(message: CursorChatRequest['messages'][number]): string {
+    return (message.parts || [])
+        .map((part) => part.text || '')
+        .filter(Boolean)
+        .join('\n')
+        .trim();
+}
+
+function buildNotionTranscript(req: CursorChatRequest, config: AppConfig) {
+    const now = new Date().toISOString();
+    const userId = config.notionActiveUserId || 'local-user';
+    const spaceId = config.notionSpaceId || 'local-space';
+    const transcript: Array<Record<string, unknown>> = [
+        {
+            id: randomUUID(),
+            type: 'config',
+            value: {
+                type: 'workflow',
+                model: req.model,
+                isHipaa: false,
+                isMobile: false,
+                yoloMode: false,
+                writerMode: false,
+                searchScopes: [{ type: 'everything' }],
+                useWebSearch: true,
+                isCustomAgent: false,
+                modelFromUser: false,
+                enableAgentAutomations: true,
+                enableDatabaseAgents: true,
+                enableCreateAndRunThread: true,
+            },
+        },
+        {
+            id: randomUUID(),
+            type: 'context',
+            value: {
+                timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+                userName: config.notionUserName || 'Local User',
+                userId,
+                userEmail: config.notionUserEmail || '',
+                spaceName: config.notionSpaceName || 'Local Workspace',
+                spaceId,
+                spaceViewId: config.notionSpaceViewId || undefined,
+                currentDatetime: now,
+                surface: 'full_page_chat',
+            },
+        },
+        {
+            id: randomUUID(),
+            type: 'updated-config',
+        },
+        {
+            id: randomUUID(),
+            type: 'updated-config',
+        },
+        {
+            id: randomUUID(),
+            type: 'updated-config',
+        },
+    ];
+
+    for (const message of req.messages) {
+        const text = flattenMessageText(message);
+        if (!text) continue;
+        const role = message.role === 'assistant' ? 'assistant' : 'user';
+        const entry: Record<string, unknown> = {
+            id: randomUUID(),
+            type: role,
+            value: [[text]],
+            createdAt: now,
+        };
+        if (role === 'user') {
+            entry.userId = userId;
+        }
+        transcript.push(entry);
+    }
+
+    return transcript;
+}
+
+function buildNotionPayload(req: CursorChatRequest, config: AppConfig): Record<string, unknown> {
+    const spaceId = config.notionSpaceId || '';
+    const threadId = config.notionThreadId || randomUUID();
+    return {
+        traceId: randomUUID(),
+        spaceId,
+        transcript: buildNotionTranscript(req, config),
+        threadId,
+        createThread: !config.notionThreadId,
+        debugOverrides: {
+            emitAgentSearchExtractedResults: true,
+            cachedInferences: {},
+            annotationInferences: {},
+            emitInferences: false,
+        },
+        generateTitle: false,
+        saveAllThreadOperations: true,
+        setUnreadState: false,
+        createdSource: 'full_page_chat',
+        threadType: 'workflow',
+        isPartialTranscript: true,
+        asPatchResponse: true,
+        isUserInAnySalesAssistedSpace: false,
+        isSpaceSalesAssisted: false,
+    };
+}
+
 function getChromeHeaders(): Record<string, string> {
     const config = getConfig();
+    const upstreamUrl = getUpstreamUrl(config);
+    const origin = config.upstreamOrigin || upstreamUrl.origin || DEFAULT_ORIGIN;
+    const referer = config.upstreamReferer || `${origin}/`;
+
+    if (isNotionUpstream(config)) {
+        const headers: Record<string, string> = {
+            'content-type': 'application/json',
+            'accept': 'application/x-ndjson',
+            'accept-language': config.notionAcceptLanguage || 'zh-CN,zh;q=0.9,en-US;q=0.8,en;q=0.7,en-GB;q=0.6',
+            'cache-control': 'no-cache',
+            'pragma': 'no-cache',
+            'notion-audit-log-platform': 'web',
+            'notion-client-version': config.notionClientVersion || DEFAULT_NOTION_CLIENT_VERSION,
+            'origin': origin,
+            'referer': referer,
+            'priority': 'u=1, i',
+            'sec-ch-ua': config.notionSecChUa || '"Chromium";v="146", "Not-A.Brand";v="24", "Microsoft Edge";v="146"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"',
+            'sec-fetch-dest': 'empty',
+            'sec-fetch-mode': 'cors',
+            'sec-fetch-site': 'same-origin',
+            'user-agent': config.fingerprint.userAgent,
+        };
+
+        if (config.notionBaggage) {
+            headers.baggage = config.notionBaggage;
+        }
+        if (config.notionSentryTrace) {
+            headers['sentry-trace'] = config.notionSentryTrace;
+        }
+        if (config.notionActiveUserId) {
+            headers['x-notion-active-user-header'] = config.notionActiveUserId;
+        }
+        if (config.notionSpaceId) {
+            headers['x-notion-space-id'] = config.notionSpaceId;
+        }
+        if (config.cookie) {
+            headers.cookie = config.cookie;
+        }
+        return headers;
+    }
+
     const headers: Record<string, string> = {
         'Content-Type': 'application/json',
         'accept': '*/*',
         'sec-ch-ua-platform': '"macOS"',
-        'x-path': '/api/chat',
+        'x-path': upstreamUrl.pathname || '/chat',
         'sec-ch-ua': '"Chromium";v="146", "Not-A.Brand";v="24", "Google Chrome";v="146"',
         'x-method': 'POST',
         'sec-ch-ua-bitness': '"64"',
@@ -30,30 +181,206 @@ function getChromeHeaders(): Record<string, string> {
         'sec-ch-ua-arch': '"arm"',
         'sec-ch-ua-platform-version': '"14.6.1"',
         'dnt': '1',
-        'origin': 'https://cursor.com',
+        'origin': origin,
         'sec-fetch-site': 'same-origin',
         'sec-fetch-mode': 'cors',
         'sec-fetch-dest': 'empty',
-        'referer': 'https://cursor.com/cn/docs',
+        'referer': referer,
         'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
         'priority': 'u=1, i',
         'user-agent': config.fingerprint.userAgent,
-        'x-is-human': '',  // Cursor 不再校验此字段
+        'x-is-human': '',
     };
 
-    // 携带 Cookie 通过 Vercel 安全验证
     if (config.cookie) {
-        headers['cookie'] = config.cookie;
+        headers.cookie = config.cookie;
     }
 
     return headers;
 }
 
-// ==================== API 请求 ====================
+function extractUsage(candidate: any): { inputTokens?: number; outputTokens?: number; totalTokens?: number } | undefined {
+    const usage = candidate?.messageMetadata?.usage || candidate?.usage || candidate?.tokenUsage;
+    if (!usage || typeof usage !== 'object') return undefined;
+    return {
+        inputTokens: usage.inputTokens ?? usage.input_tokens,
+        outputTokens: usage.outputTokens ?? usage.output_tokens,
+        totalTokens: usage.totalTokens ?? usage.total_tokens,
+    };
+}
 
-/**
- * 发送请求到 Cursor /api/chat 并以流式方式处理响应（带重试）
- */
+function sanitizeNotionText(text: string): string {
+    return text
+        .replace(/<lang\b[^>]*\/>/gi, '')
+        .replace(/\bprimary="[^"]*"\s*\/>/gi, '')
+        .replace(/\s*<\/lang>\s*/gi, '');
+}
+
+function extractPatchDelta(
+    candidate: any,
+    streamIndexRef: { current: number },
+    textPathsRef: { current: Set<string> },
+): string {
+    if (!candidate || typeof candidate !== 'object' || !Array.isArray(candidate.v)) return '';
+
+    let text = '';
+    for (const op of candidate.v) {
+        if (!op || typeof op !== 'object') continue;
+
+        if (
+            op.o === 'a' &&
+            typeof op.p === 'string' &&
+            op.p === '/s/-'
+        ) {
+            const basePath = `/s/${streamIndexRef.current}`;
+            streamIndexRef.current += 1;
+            const step = op.v;
+            if (
+                step &&
+                typeof step === 'object' &&
+                step.type === 'agent-inference' &&
+                Array.isArray(step.value)
+            ) {
+                step.value.forEach((item: any, index: number) => {
+                    if (item?.type === 'text' && typeof item.content === 'string') {
+                        textPathsRef.current.add(`${basePath}/value/${index}/content`);
+                        text += item.content;
+                    }
+                });
+            }
+            continue;
+        }
+
+        if (
+            op.o === 'x' &&
+            typeof op.p === 'string' &&
+            textPathsRef.current.has(op.p) &&
+            typeof op.v === 'string'
+        ) {
+            text += op.v;
+            continue;
+        }
+    }
+
+    return sanitizeNotionText(text);
+}
+
+function extractRecordMapDelta(candidate: any): string {
+    if (!candidate || typeof candidate !== 'object' || candidate.type !== 'record-map') return '';
+    const threadMessage = candidate.recordMap?.thread_message;
+    if (!threadMessage || typeof threadMessage !== 'object') return '';
+
+    let text = '';
+    for (const entry of Object.values(threadMessage as Record<string, any>)) {
+        const stepValue = entry?.value?.value?.step?.value;
+        if (!Array.isArray(stepValue)) continue;
+        for (const item of stepValue) {
+            if (item && typeof item === 'object' && item.type === 'text' && typeof item.content === 'string') {
+                text += item.content;
+            }
+        }
+    }
+    return sanitizeNotionText(text);
+}
+
+function extractNotionDelta(
+    candidate: any,
+    streamIndexRef: { current: number },
+    textPathsRef: { current: Set<string> },
+    seenTextRef: { current: string },
+): string {
+    if (!candidate || typeof candidate !== 'object') return '';
+    if (candidate.type === 'patch') {
+        return extractPatchDelta(candidate, streamIndexRef, textPathsRef);
+    }
+    if (candidate.type === 'record-map') {
+        if (seenTextRef.current) return '';
+        return extractRecordMapDelta(candidate);
+    }
+    return '';
+}
+
+function parseSseChunk(
+    chunk: string,
+    onChunk: (event: CursorSSEEvent) => void,
+): void {
+    for (const line of chunk.split('\n')) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6).trim();
+        if (!data) continue;
+        try {
+            const event: CursorSSEEvent = JSON.parse(data);
+            onChunk(event);
+        } catch {
+            // ignore malformed lines
+        }
+    }
+}
+
+function parseNdjsonChunk(
+    chunk: string,
+    onChunk: (event: CursorSSEEvent) => void,
+    usageRef: { current?: { inputTokens?: number; outputTokens?: number; totalTokens?: number } },
+    seenTextRef: { current: string },
+    debugRef: { lines: number },
+    debugEventsRef: { current: string[] },
+    streamIndexRef: { current: number },
+    textPathsRef: { current: Set<string> },
+): void {
+    for (const line of chunk.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+            const event = JSON.parse(trimmed);
+            if (event?.type === 'patch-start' && Array.isArray(event?.data?.s)) {
+                streamIndexRef.current = event.data.s.length;
+            }
+            if (debugRef.lines < 8) {
+                const preview = trimmed.length > 600 ? `${trimmed.slice(0, 600)}...` : trimmed;
+                console.log(`[NotionRaw ${debugRef.lines + 1}] ${preview}`);
+                debugEventsRef.current.push(preview);
+            }
+            debugRef.lines++;
+            const usage = extractUsage(event);
+            if (usage) {
+                usageRef.current = usage;
+            }
+            if (event?.type === 'patch' && Array.isArray(event.v)) {
+                for (const op of event.v) {
+                    if (!op || typeof op !== 'object') continue;
+                    if (typeof op.p === 'string' && /\/(inputTokens|maxContextTokens|outputTokens|maxInputTokens|cachedTokensRead)$/.test(op.p)) {
+                        usageRef.current = {
+                            ...usageRef.current,
+                            inputTokens: op.p.endsWith('/inputTokens') ? op.v : usageRef.current?.inputTokens,
+                            outputTokens: op.p.endsWith('/outputTokens') ? op.v : usageRef.current?.outputTokens,
+                            totalTokens: usageRef.current?.totalTokens,
+                        };
+                    }
+                }
+            }
+            const delta = extractNotionDelta(event, streamIndexRef, textPathsRef, seenTextRef);
+            if (delta) {
+                let emit = delta;
+                if (event?.type === 'record-map') {
+                    if (seenTextRef.current && delta.startsWith(seenTextRef.current)) {
+                        emit = delta.slice(seenTextRef.current.length);
+                    } else if (seenTextRef.current.includes(delta)) {
+                        emit = '';
+                    }
+                }
+                if (emit) {
+                    seenTextRef.current += emit;
+                    const deltaPreview = emit.length > 200 ? `${emit.slice(0, 200)}...` : emit;
+                    console.log(`[NotionDelta] ${JSON.stringify(deltaPreview)}`);
+                    onChunk({ type: 'text-delta', delta: emit });
+                }
+            }
+        } catch {
+            // ignore malformed lines
+        }
+    }
+}
+
 export async function sendCursorRequest(
     req: CursorChatRequest,
     onChunk: (event: CursorSSEEvent) => void,
@@ -65,14 +392,11 @@ export async function sendCursorRequest(
             await sendCursorRequestInner(req, onChunk, externalSignal);
             return;
         } catch (err) {
-            // 外部主动中止不重试
             if (externalSignal?.aborted) throw err;
-            // ★ 退化循环中止不重试 — 已有的内容是有效的，重试也会重蹈覆辙
-            if (err instanceof Error && err.message === 'DEGENERATE_LOOP_ABORTED') return;
             const msg = err instanceof Error ? err.message : String(err);
-            console.error(`[Cursor] 请求失败 (${attempt}/${maxRetries}): ${msg.substring(0, 100)}`);
+            console.error(`[Cursor] 请求失败 (${attempt}/${maxRetries}): ${msg.substring(0, 200)}`);
             if (attempt < maxRetries) {
-                await new Promise(r => setTimeout(r, 2000));
+                await new Promise((r) => setTimeout(r, 2000));
             } else {
                 throw err;
             }
@@ -86,50 +410,35 @@ async function sendCursorRequestInner(
     externalSignal?: AbortSignal,
 ): Promise<void> {
     const config = getConfig();
-
-    // ★ 选择请求目标：stealth proxy 或直连 Cursor API
+    const upstreamUrl = getUpstreamUrl(config);
     const useStealthProxy = !!config.stealthProxy;
+    const notionUpstream = isNotionUpstream(config);
     const targetUrl = useStealthProxy
         ? `${config.stealthProxy!.replace(/\/$/, '')}/proxy/chat`
-        : CURSOR_CHAT_API;
-    // stealth proxy 内部自带浏览器指纹，不需要 Chrome headers
-    const headers = useStealthProxy
-        ? { 'Content-Type': 'application/json' }
-        : getChromeHeaders();
-
-    // 详细日志记录在 handler 层
+        : upstreamUrl.toString();
+    const headers = useStealthProxy ? { 'Content-Type': 'application/json' } : getChromeHeaders();
+    const requestBody = notionUpstream ? buildNotionPayload(req, config) : req;
 
     const controller = new AbortController();
-    // 链接外部信号：外部中止时同步中止内部 controller
     if (externalSignal) {
-        if (externalSignal.aborted) { controller.abort(); }
-        else { externalSignal.addEventListener('abort', () => controller.abort(), { once: true }); }
+        if (externalSignal.aborted) controller.abort();
+        else externalSignal.addEventListener('abort', () => controller.abort(), { once: true });
     }
 
-    // ★ 空闲超时（Idle Timeout）：用读取活动检测替换固定总时长超时。
-    // 每次收到新数据时重置计时器，只有在指定时间内完全无数据到达时才中断。
-    // 这样长输出（如写长文章、大量工具调用）不会因总时长超限被误杀。
-    const IDLE_TIMEOUT_MS = config.timeout * 1000; // 复用 timeout 配置作为空闲超时阈值
+    const idleTimeoutMs = config.timeout * 1000;
     let idleTimer: ReturnType<typeof setTimeout> | null = null;
-
     const resetIdleTimer = () => {
         if (idleTimer) clearTimeout(idleTimer);
-        idleTimer = setTimeout(() => {
-            console.warn(`[Cursor] 空闲超时（${config.timeout}s 无新数据），中止请求`);
-            controller.abort();
-        }, IDLE_TIMEOUT_MS);
+        idleTimer = setTimeout(() => controller.abort(), idleTimeoutMs);
     };
-
-    // 启动初始计时（等待服务器开始响应）
     resetIdleTimer();
 
     try {
-        // stealth proxy 时不需要额外的 proxy dispatcher（它自己就是代理）
         const fetchOptions = useStealthProxy ? {} : getProxyFetchOptions();
         const resp = await fetch(targetUrl, {
             method: 'POST',
             headers,
-            body: JSON.stringify(req),
+            body: JSON.stringify(requestBody),
             signal: controller.signal,
             ...fetchOptions,
         } as any);
@@ -143,132 +452,65 @@ async function sendCursorRequestInner(
             throw new Error('Cursor API 响应无 body');
         }
 
-        // 流式读取 SSE 响应
+        const contentType = resp.headers.get('content-type') || '';
+        const parseAsNdjson = notionUpstream || contentType.includes('application/x-ndjson');
         const reader = resp.body.getReader();
         const decoder = new TextDecoder();
         let buffer = '';
+        const usageRef: { current?: { inputTokens?: number; outputTokens?: number; totalTokens?: number } } = {};
+        const seenTextRef: { current: string } = { current: '' };
+        const debugRef: { lines: number } = { lines: 0 };
+        const debugEventsRef: { current: string[] } = { current: [] };
+        const streamIndexRef: { current: number } = { current: 0 };
+        const textPathsRef: { current: Set<string> } = { current: new Set() };
+        let rawChunkCount = 0;
 
-        // ★ 退化重复检测器 (#66)
-        // 模型有时会陷入循环，不断输出 </s>、</br> 等无意义标记
-        // 检测原理：跟踪最近的连续相同 delta，超过阈值则中止流
-        let lastDelta = '';
-        let repeatCount = 0;
-        const REPEAT_THRESHOLD = 8;       // 同一 delta 连续出现 8 次 → 退化
-        let degenerateAborted = false;
-
-        // ★ HTML token 重复检测：历史消息较多时模型偶发连续输出 <br>、</s> 等 HTML token 的 bug
-        // 用 tagBuffer 跨 delta 拼接，提取完整 token 后检测连续重复，不依赖换行
-        let tagBuffer = '';
-        let htmlRepeatAborted = false;
-        const HTML_TOKEN_RE = /(<\/?[a-z][a-z0-9]*\s*\/?>|&[a-z]+;)/gi;
+        debugEventsRef.current.push(`[meta] status=${resp.status} content-type=${contentType || '(empty)'} parseAsNdjson=${parseAsNdjson}`);
 
         while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-
-            // 每次收到数据就重置空闲计时器
             resetIdleTimer();
-
-            buffer += decoder.decode(value, { stream: true });
+            const decodedChunk = decoder.decode(value, { stream: true });
+            if (rawChunkCount < 4) {
+                const preview = decodedChunk.length > 600 ? `${decodedChunk.slice(0, 600)}...` : decodedChunk;
+                debugEventsRef.current.push(`[chunk ${rawChunkCount + 1}] ${preview || '(empty chunk)'}`);
+            }
+            rawChunkCount++;
+            buffer += decodedChunk;
             const lines = buffer.split('\n');
             buffer = lines.pop() || '';
-
-            for (const line of lines) {
-                if (!line.startsWith('data: ')) continue;
-                const data = line.slice(6).trim();
-                if (!data) continue;
-
-                try {
-                    const event: CursorSSEEvent = JSON.parse(data);
-
-                    // ★ 退化重复检测：当模型重复输出同一短文本片段时中止
-                    if (event.type === 'text-delta' && event.delta) {
-                        const trimmedDelta = event.delta.trim();
-                        // 只检测短 token（长文本重复是正常的，比如重复的代码行）
-                        if (trimmedDelta.length > 0 && trimmedDelta.length <= 20) {
-                            if (trimmedDelta === lastDelta) {
-                                repeatCount++;
-                                if (repeatCount >= REPEAT_THRESHOLD) {
-                                    console.warn(`[Cursor] ⚠️ 检测到退化循环: "${trimmedDelta}" 已连续重复 ${repeatCount} 次，中止流`);
-                                    degenerateAborted = true;
-                                    reader.cancel();
-                                    break;
-                                }
-                            } else {
-                                lastDelta = trimmedDelta;
-                                repeatCount = 1;
-                            }
-                        } else {
-                            // 长文本或空白 → 重置计数
-                            lastDelta = '';
-                            repeatCount = 0;
-                        }
-
-                        // ★ HTML token 重复检测：跨 delta 拼接，提取完整 HTML token 后检测连续重复
-                        // 解决 <br>、</s>、&nbsp; 等被拆散发送或无换行导致退化检测失效的 bug
-                        tagBuffer += event.delta;
-                        const tagMatches = [...tagBuffer.matchAll(new RegExp(HTML_TOKEN_RE.source, 'gi'))];
-                        if (tagMatches.length > 0) {
-                            const lastTagMatch = tagMatches[tagMatches.length - 1];
-                            tagBuffer = tagBuffer.slice(lastTagMatch.index! + lastTagMatch[0].length);
-                            for (const m of tagMatches) {
-                                const token = m[0].toLowerCase();
-                                if (token === lastDelta) {
-                                    repeatCount++;
-                                    if (repeatCount >= REPEAT_THRESHOLD) {
-                                        console.warn(`[Cursor] ⚠️ 检测到 HTML token 重复: "${token}" 已连续重复 ${repeatCount} 次，中止流`);
-                                        htmlRepeatAborted = true;
-                                        reader.cancel();
-                                        break;
-                                    }
-                                } else {
-                                    lastDelta = token;
-                                    repeatCount = 1;
-                                }
-                            }
-                            if (htmlRepeatAborted) break;
-                        } else if (tagBuffer.length > 20) {
-                            // 超过 20 字符还没有完整 HTML token，不是 HTML 序列，清空避免内存累积
-                            tagBuffer = '';
-                        }
-                    }
-
-                    onChunk(event);
-                } catch {
-                    // 非 JSON 数据，忽略
-                }
-            }
-
-            if (degenerateAborted || htmlRepeatAborted) break;
-        }
-
-        // ★ 退化循环中止后，抛出特殊错误让外层 sendCursorRequest 不再重试
-        if (degenerateAborted) {
-            throw new Error('DEGENERATE_LOOP_ABORTED');
-        }
-        // ★ HTML token 重复中止后，抛出普通错误让外层 sendCursorRequest 走正常重试
-        if (htmlRepeatAborted) {
-            throw new Error('HTML_REPEAT_ABORTED');
-        }
-
-        // 处理剩余 buffer
-        if (buffer.startsWith('data: ')) {
-            const data = buffer.slice(6).trim();
-            if (data) {
-                try {
-                    const event: CursorSSEEvent = JSON.parse(data);
-                    onChunk(event);
-                } catch { /* ignore */ }
+            const chunk = lines.join('\n');
+            if (!chunk) continue;
+            if (parseAsNdjson) {
+                parseNdjsonChunk(chunk, onChunk, usageRef, seenTextRef, debugRef, debugEventsRef, streamIndexRef, textPathsRef);
+            } else {
+                parseSseChunk(chunk, onChunk);
             }
         }
+
+        if (buffer.trim()) {
+            if (rawChunkCount < 4) {
+                const preview = buffer.length > 600 ? `${buffer.slice(0, 600)}...` : buffer;
+                debugEventsRef.current.push(`[tail] ${preview}`);
+            }
+            if (parseAsNdjson) {
+                parseNdjsonChunk(buffer, onChunk, usageRef, seenTextRef, debugRef, debugEventsRef, streamIndexRef, textPathsRef);
+            } else {
+                parseSseChunk(buffer, onChunk);
+            }
+        }
+
+        onChunk({
+            type: 'finish',
+            debug: debugEventsRef.current,
+            messageMetadata: usageRef.current ? { usage: usageRef.current } : undefined,
+        });
     } finally {
         if (idleTimer) clearTimeout(idleTimer);
     }
 }
 
-/**
- * 发送非流式请求，收集完整响应及 usage 信息
- */
 export async function sendCursorRequestFull(req: CursorChatRequest): Promise<{ text: string; usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number } }> {
     let fullText = '';
     let usage: { inputTokens?: number; outputTokens?: number; totalTokens?: number } | undefined;
