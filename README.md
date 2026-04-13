@@ -281,13 +281,6 @@ curl http://localhost:3010/health
 - `notion_baggage`
 - `notion_sentry_trace`
 
-## 已清理的旧说明
-
-下面这些旧描述现在不再准确，已经不应再作为当前主路径理解：
-
-- 默认上游是 Cursor `/api/chat`
-- 只面向 Cursor Docs 页面
-- 仅需替换 URL 就能兼容任意聊天站点
 - Notion 只靠 `https://www.notion.so/chat` 即可访问
 
 当前仓库的主工作流应理解为：
